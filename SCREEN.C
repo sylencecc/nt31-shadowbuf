@@ -77,43 +77,43 @@ BOOL bInitSURF(PPDEV ppdev, BOOL bFirst)
 
         ppdev->pjScreen = (PBYTE)(videoMemoryInformation.FrameBufferBase);
 
-        // It's a hardware pointer; set up pointer attributes.
+        if(ppdev->PointerCapabilities.Flags != 0) {
+            // It's a hardware pointer; set up pointer attributes.
+            MaxHeight = ppdev->PointerCapabilities.MaxHeight;
 
-        MaxHeight = ppdev->PointerCapabilities.MaxHeight;
+            // Allocate space for two DIBs (data/mask) for the pointer. If this
+            // device supports a color Pointer, we will allocate a larger bitmap.
+            // If this is a color bitmap we allocate for the largest possible
+            // bitmap because we have no idea of what the pixel depth might be.
 
-        // Allocate space for two DIBs (data/mask) for the pointer. If this
-        // device supports a color Pointer, we will allocate a larger bitmap.
-        // If this is a color bitmap we allocate for the largest possible
-        // bitmap because we have no idea of what the pixel depth might be.
+            // Width rounded up to nearest byte multiple
 
-        // Width rounded up to nearest byte multiple
+            if (!(ppdev->PointerCapabilities.Flags & VIDEO_MODE_COLOR_POINTER)) {
+                MaxWidth = (ppdev->PointerCapabilities.MaxWidth + 7) / 8;
+            } else {
+                MaxWidth = ppdev->PointerCapabilities.MaxWidth * sizeof(DWORD);
+            }
 
-        if (!(ppdev->PointerCapabilities.Flags & VIDEO_MODE_COLOR_POINTER)) {
-            MaxWidth = (ppdev->PointerCapabilities.MaxWidth + 7) / 8;
-        } else {
-            MaxWidth = ppdev->PointerCapabilities.MaxWidth * sizeof(DWORD);
+            ppdev->cjPointerAttributes =
+                    sizeof(VIDEO_POINTER_ATTRIBUTES) +
+                    ((sizeof(UCHAR) * MaxWidth * MaxHeight) * 2);
+
+            ppdev->pPointerAttributes = (PVIDEO_POINTER_ATTRIBUTES)
+                    LocalAlloc(LMEM_FIXED | LMEM_ZEROINIT,
+                    ppdev->cjPointerAttributes);
+
+            if (ppdev->pPointerAttributes == NULL) {
+                DISPDBG((0, "FRAMEBUF: bInitPointer LocalAlloc failed\n"));
+                return(FALSE);
+            }
+
+            ppdev->pPointerAttributes->WidthInBytes = MaxWidth;
+            ppdev->pPointerAttributes->Width = ppdev->PointerCapabilities.MaxWidth;
+            ppdev->pPointerAttributes->Height = MaxHeight;
+            ppdev->pPointerAttributes->Column = 0;
+            ppdev->pPointerAttributes->Row = 0;
+            ppdev->pPointerAttributes->Enable = 0;
         }
-
-        ppdev->cjPointerAttributes =
-                sizeof(VIDEO_POINTER_ATTRIBUTES) +
-                ((sizeof(UCHAR) * MaxWidth * MaxHeight) * 2);
-
-        ppdev->pPointerAttributes = (PVIDEO_POINTER_ATTRIBUTES)
-                LocalAlloc(LMEM_FIXED | LMEM_ZEROINIT,
-                ppdev->cjPointerAttributes);
-
-        if (ppdev->pPointerAttributes == NULL) {
-
-            DISPDBG((0, "FRAMEBUF: bInitPointer LocalAlloc failed\n"));
-            return(FALSE);
-        }
-
-        ppdev->pPointerAttributes->WidthInBytes = MaxWidth;
-        ppdev->pPointerAttributes->Width = ppdev->PointerCapabilities.MaxWidth;
-        ppdev->pPointerAttributes->Height = MaxHeight;
-        ppdev->pPointerAttributes->Column = 0;
-        ppdev->pPointerAttributes->Row = 0;
-        ppdev->pPointerAttributes->Enable = 0;
     }
 
     return(TRUE);
@@ -281,7 +281,6 @@ DEVINFO *pDevInfo)
     pGdiInfo->ulLogPixelsY = 96;
 
     pGdiInfo->flTextCaps = TC_RA_ABLE;
-
     pGdiInfo->flRaster = 0;           // flRaster is reserved by DDI
 
     pGdiInfo->ulDACRed   = pVideoModeSelected->NumberRedBits;
