@@ -46,21 +46,13 @@ static DRVFN gadrvfn[] =
     {   INDEX_DrvStrokePath,            (PFN) DrvStrokePath         },
     {   INDEX_DrvCopyBits,              (PFN) DrvCopyBits           },
     {   INDEX_DrvTextOut,               (PFN) DrvDFBTextOut         },
-#else
-#ifdef MIPS
-    {   INDEX_DrvTextOut,               (PFN) DrvTextOut            },
-#endif
 #endif
     {   INDEX_DrvGetModes,              (PFN) DrvGetModes           }
 };
 
 // Define the functions you want to hook for 8/16/24/32 pel formats
 
-#ifdef MIPS
-#define HOOKS_BMF8BPP HOOK_TEXTOUT
-#else
 #define HOOKS_BMF8BPP 0
-#endif
 
 #define HOOKS_BMF16BPP 0
 
@@ -613,18 +605,6 @@ MIX       mix)
     }
     else
     {
-#ifdef MIPS
-        return(DrvTextOut(pso,
-                          pstro,
-                          pfo,
-                          pco,
-                          prclExtra,
-                          prclOpaque,
-                          pboFore,
-                          pboOpaque,
-                          pptlOrg,
-                          mix));
-#else
         return(EngTextOut(pso,
                           pstro,
                           pfo,
@@ -635,7 +615,6 @@ MIX       mix)
                           pboOpaque,
                           pptlOrg,
                           mix));
-#endif
     }
 }
 

@@ -280,11 +280,6 @@ DEVINFO *pDevInfo)
     pGdiInfo->ulLogPixelsX = 96;
     pGdiInfo->ulLogPixelsY = 96;
 
-#ifdef MIPS
-    if (ppdev->ulBitCount == 8)
-        pGdiInfo->flTextCaps = (TC_RA_ABLE | TC_SCROLLBLT);
-    else
-#endif
     pGdiInfo->flTextCaps = TC_RA_ABLE;
 
     pGdiInfo->flRaster = 0;           // flRaster is reserved by DDI
