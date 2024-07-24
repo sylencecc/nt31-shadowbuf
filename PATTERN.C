@@ -213,8 +213,7 @@ BOOL bInitPatterns(IN PPDEV ppdev, ULONG cPatterns)
 
         if (ppdev->ahbmPat[ulLoop] == (HBITMAP) 0)
         {
-        // Set the count created so vDisablePatterns will clean up.
-
+            // Set the count created so vDisablePatterns will clean up.
             ppdev->cPatterns = ulLoop;
             return(FALSE);
         }
@@ -235,8 +234,7 @@ VOID vDisablePatterns(IN PPDEV ppdev)
 {
     ULONG ulIndex;
 
-// Erase all patterns.
-
+    // Erase all patterns.
     for (ulIndex = 0; ulIndex < ppdev->cPatterns; ulIndex++)
     {
         EngDeleteSurface((HSURF) ppdev->ahbmPat[ulIndex]);

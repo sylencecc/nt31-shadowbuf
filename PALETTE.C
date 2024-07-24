@@ -234,7 +234,7 @@ IN ULONG  cColors)
 
     UNREFERENCED_PARAMETER(fl);
 
-// Fill in pScreenClut header info
+    // Fill in pScreenClut header info
 
     pScreenClut->NumEntries = cColors;
     pScreenClut->FirstEntry = iStart;
@@ -247,12 +247,12 @@ IN ULONG  cColors)
         return(FALSE);
     }
 
-// Set the high reserved byte in each palette entry to 0.
+    // Set the high reserved byte in each palette entry to 0.
 
     while(cColors--)
         pape[cColors].peFlags = 0;
 
-// Set palette registers
+    // Set palette registers
 
     if (!DeviceIoControl(((PPDEV)(dhpdev))->hDriver,
                           IOCTL_VIDEO_SET_COLOR_REGISTERS,
