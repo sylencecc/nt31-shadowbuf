@@ -1,0 +1,6 @@
+* text eol=crlf
+*.BMP binary
+*.CUR binary
+*.DLL binary
+*.ICO binary
+
