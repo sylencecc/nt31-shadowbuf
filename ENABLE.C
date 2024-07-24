@@ -9,7 +9,6 @@
 #include "driver.h"
 
 // The driver function table with all function index/address pairs
-
 static DRVFN gadrvfn[] =
 {
     {   INDEX_DrvEnablePDEV,            (PFN) DrvEnablePDEV         },
@@ -22,18 +21,20 @@ static DRVFN gadrvfn[] =
     {   INDEX_DrvMovePointer,           (PFN) DrvMovePointer        },
     {   INDEX_DrvSetPointerShape,       (PFN) DrvSetPointerShape    },
     {   INDEX_DrvDitherColor,           (PFN) DrvDitherColor        },
+    {   INDEX_DrvCopyBits,              (PFN) DrvCopyBits           },
+    {   INDEX_DrvStretchBlt,            (PFN) DrvStretchBlt         },
+    {   INDEX_DrvPlgBlt,                (PFN) DrvPlgBlt             },
+    {   INDEX_DrvTextOut,               (PFN) DrvTextOut            },
+    {   INDEX_DrvStrokePath,            (PFN) DrvStrokePath         },
+    {   INDEX_DrvBitBlt,                (PFN) DrvBitBlt             },
+    {   INDEX_DrvPaint,                 (PFN) DrvPaint              },
+    {   INDEX_DrvFillPath,              (PFN) DrvFillPath           },
+    {   INDEX_DrvStrokeAndFillPath,     (PFN) DrvStrokeAndFillPath  },
     {   INDEX_DrvGetModes,              (PFN) DrvGetModes           }
 };
 
-// Define the functions you want to hook for 8/16/24/32 pel formats
-
-#define HOOKS_BMF8BPP 0
-
-#define HOOKS_BMF16BPP 0
-
-#define HOOKS_BMF24BPP 0
-
-#define HOOKS_BMF32BPP 0
+// Hook all available surface functions
+#define HOOKS HOOK_BITBLT | HOOK_COPYBITS | HOOK_STRETCHBLT | HOOK_PLGBLT | HOOK_TEXTOUT | HOOK_PAINT | HOOK_STROKEPATH | HOOK_FILLPATH | HOOK_STROKEANDFILLPATH
 
 /******************************Public*Routine******************************\
 * DrvEnableDriver
@@ -47,14 +48,14 @@ ULONG iEngineVersion,
 ULONG cj,
 PDRVENABLEDATA pded)
 {
-// Engine Version is passed down so future drivers can support previous
-// engine versions.  A next generation driver can support both the old
-// and new engine conventions if told what version of engine it is
-// working with.  For the first version the driver does nothing with it.
+    // Engine Version is passed down so future drivers can support previous
+    // engine versions.  A next generation driver can support both the old
+    // and new engine conventions if told what version of engine it is
+    // working with.  For the first version the driver does nothing with it.
 
     iEngineVersion;
 
-// Fill in as much as we can.
+    // Fill in as much as we can.
 
     if (cj >= sizeof(DRVENABLEDATA))
         pded->pdrvfn = gadrvfn;
@@ -62,8 +63,8 @@ PDRVENABLEDATA pded)
     if (cj >= (sizeof(ULONG) * 2))
         pded->c = sizeof(gadrvfn) / sizeof(DRVFN);
 
-// DDI version this driver was targeted for is passed back to engine.
-// Future graphic's engine may break calls down to old driver format.
+    // DDI version this driver was targeted for is passed back to engine.
+    // Future graphic's engine may break calls down to old driver format.
 
     if (cj >= sizeof(ULONG))
         pded->iDriverVersion = DDI_DRIVER_VERSION;
@@ -231,7 +232,6 @@ DHPDEV dhpdev)
     HSURF hsurf;
     SIZEL sizl;
     ULONG ulBitmapType;
-    FLONG flHooks;
 
     // Create engine bitmap around frame buffer.
 
@@ -253,37 +253,45 @@ DHPDEV dhpdev)
             return(FALSE);
         }
         ulBitmapType = BMF_8BPP;
-        flHooks = HOOKS_BMF8BPP;
     }
     else if (ppdev->ulBitCount == 16)
     {
         ulBitmapType = BMF_16BPP;
-        flHooks = HOOKS_BMF16BPP;
     }
     else if (ppdev->ulBitCount == 24)
     {
         ulBitmapType = BMF_24BPP;
-        flHooks = HOOKS_BMF24BPP;
     }
     else
     {
         ulBitmapType = BMF_32BPP;
-        flHooks = HOOKS_BMF32BPP;
     }
 
+	  // Create an engine-managed bitmap (DIB) that serves as shadow buffer
     hsurf = (HSURF) EngCreateBitmap(sizl,
                                     ppdev->lDeltaScreen,
                                     ulBitmapType,
                                     (ppdev->lDeltaScreen > 0) ? BMF_TOPDOWN : 0,
-                                        (PVOID) (ppdev->pjScreen));
-
+                                    NULL);
     if (hsurf == (HSURF) 0)
     {
         RIP("DISP DrvEnableSurface failed EngCreateBitmap\n");
         return(FALSE);
     }
 
-    if (!EngAssociateSurface(hsurf, ppdev->hdevEng, flHooks))
+    // Create an engine-managed bitmap (DIB) for the actual device framebuffer
+    ppdev->hsurfBuffer = (HSURF) EngCreateBitmap(sizl,
+                                            ppdev->lDeltaScreen,
+                                            ulBitmapType,
+                                            (ppdev->lDeltaScreen > 0) ? BMF_TOPDOWN : 0,
+                                            (PVOID) (ppdev->pjScreen));
+    if (ppdev->hsurfBuffer == (HSURF) 0)
+    {
+        RIP("DISP DrvEnableSurface failed EngCreateBitmap for buffer\n");
+        return(FALSE);
+    }
+
+    if (!EngAssociateSurface(hsurf, ppdev->hdevEng, HOOKS))
     {
         RIP("DISP DrvEnableSurface failed EngAssociateSurface\n");
         EngDeleteSurface(hsurf);
@@ -306,6 +314,7 @@ VOID DrvDisableSurface(
 DHPDEV dhpdev)
 {
     EngDeleteSurface(((PPDEV) dhpdev)->hsurfEng);
+    EngDeleteSurface(((PPDEV) dhpdev)->hsurfBuffer);
     vDisableSURF((PPDEV) dhpdev);
     ((PPDEV) dhpdev)->hsurfEng = (HSURF) 0;
 }
@@ -326,15 +335,13 @@ BOOL bEnable)
 
     if (bEnable)
     {
-    // The screen must be reenabled, reinitialize the device to clean state.
-
-            bInitSURF(ppdev, FALSE);
+        // The screen must be reenabled, reinitialize the device to clean state.
+        bInitSURF(ppdev, FALSE);
     }
     else
     {
-    // We must give up the display.
-    // Call the kernel driver to reset the device to a known state.
-
+        // We must give up the display.
+        // Call the kernel driver to reset the device to a known state.
         if (!DeviceIoControl(ppdev->hDriver,
                              IOCTL_VIDEO_RESET_DEVICE,
                              NULL,
@@ -463,4 +470,182 @@ DEVMODEW *pdm)
 
     return cbOutputSize;
 
+}
+
+/*----------------------------------------------------------------------------
+ Buffering to speed up DrvCopyBits() and *Blt()
+
+ We hook all available surface drawing functions and cause each function to
+ call its respective Eng* function first to draw onto the actual framebuffer,
+ followed by drawing onto the in-memory cache bitmap. Since fetching memory
+ from the actual framebuffer is slow, especially on real hardware, we
+ prevent that bottleneck by letting DrvCopyBits() and *Blt() functions
+ fetch from the in-memory cache bitmap instead.
+----------------------------------------------------------------------------*/
+
+BOOL DrvCopyBits(
+SURFOBJ  *psoTrg,
+SURFOBJ  *psoSrc,
+CLIPOBJ  *pco,
+XLATEOBJ *pxlo,
+RECTL    *prclTrg,
+POINTL   *pptlSrc)
+{
+    HSURF psoBuffer;
+    psoBuffer = EngLockSurface(((PPDEV) psoTrg->dhpdev)->hsurfBuffer);
+    EngCopyBits(psoBuffer, psoSrc, pco, pxlo, prclTrg, pptlSrc);
+    EngUnlockSurface(psoBuffer);
+    return EngCopyBits(psoTrg, psoSrc, pco, pxlo, prclTrg, pptlSrc);
+}
+
+BOOL DrvStretchBlt(
+SURFOBJ *psoDest,
+SURFOBJ *psoSrc,
+SURFOBJ *psoMask,
+CLIPOBJ *pco,
+XLATEOBJ *pxlo,
+COLORADJUSTMENT *pca,
+POINTL *pptlHTOrg,
+RECTL *prclDest,
+RECTL *prclSrc,
+POINTL *pptlMask,
+ULONG iMode
+)
+{
+    HSURF psoBuffer;
+    psoBuffer = EngLockSurface(((PPDEV) psoDest->dhpdev)->hsurfBuffer);
+    EngStretchBlt(psoBuffer, psoSrc, psoMask, pco, pxlo, pca, pptlHTOrg, prclDest, prclSrc, pptlMask, iMode);
+    EngUnlockSurface(psoBuffer);
+    return EngStretchBlt(psoDest, psoSrc, psoMask, pco, pxlo, pca, pptlHTOrg, prclDest, prclSrc, pptlMask,iMode);
+}
+
+BOOL DrvPlgBlt(
+SURFOBJ *psoDest,
+SURFOBJ *psoSrc,
+SURFOBJ *psoMask,
+CLIPOBJ *pco,
+XLATEOBJ *pxlo,
+COLORADJUSTMENT *pca,
+POINTL *pptlHTOrg,
+POINTFIX *ppfixDest,
+RECTL *prclSrc,
+POINTL *pptlMask,
+ULONG iMode)
+{
+    HSURF psoBuffer;
+	  psoBuffer = EngLockSurface(((PPDEV) psoDest->dhpdev)->hsurfBuffer);
+	  EngPlgBlt(psoBuffer, psoSrc, psoMask, pco, pxlo, pca, pptlHTOrg, ppfixDest, prclSrc, pptlMask, iMode);
+	  EngUnlockSurface(psoBuffer);
+	  return EngPlgBlt(psoDest, psoSrc, psoMask, pco, pxlo, pca, pptlHTOrg, ppfixDest, prclSrc, pptlMask, iMode);
+}
+
+BOOL DrvTextOut(
+SURFOBJ  *pso,
+STROBJ   *pstro,
+FONTOBJ  *pfo,
+CLIPOBJ  *pco,
+RECTL    *prclExtra,
+RECTL    *prclOpaque,
+BRUSHOBJ *pboFore,
+BRUSHOBJ *pboOpaque,
+POINTL   *pptlOrg,
+MIX       mix)
+{
+    HSURF psoBuffer;
+    // Calling EngTextOut() is destructive, because it modifies pco.
+    // Since we need to call it twice, we OR in OC_BANK_CLIP (undocumented),
+    // which causes bBanked within EngTextOut() to be set to True.
+    // Consequently, EngTextOut() will revert all changes to pco.
+    // See NT 3.5 sources (TEXTBLT.CXX) for details.
+    pco->fjOptions |= OC_BANK_CLIP;
+    psoBuffer = EngLockSurface(((PPDEV) pso->dhpdev)->hsurfBuffer);
+    EngTextOut(psoBuffer, pstro, pfo, pco, prclExtra, prclOpaque, pboFore, pboOpaque, pptlOrg, mix);
+    EngUnlockSurface(psoBuffer);
+    return EngTextOut(pso, pstro, pfo, pco, prclExtra, prclOpaque, pboFore, pboOpaque, pptlOrg, mix);
+}
+
+BOOL DrvStrokePath(
+SURFOBJ   *pso,
+PATHOBJ   *ppo,
+CLIPOBJ   *pco,
+XFORMOBJ  *pxo,
+BRUSHOBJ  *pbo,
+POINTL    *pptlBrushOrg,
+LINEATTRS *plineattrs,
+MIX        mix)
+{
+    HSURF psoBuffer;
+    psoBuffer = EngLockSurface(((PPDEV) pso->dhpdev)->hsurfBuffer);
+    EngStrokePath(psoBuffer, ppo, pco, pxo, pbo, pptlBrushOrg, plineattrs, mix);
+    EngUnlockSurface(psoBuffer);
+    return EngStrokePath(pso, ppo, pco, pxo, pbo, pptlBrushOrg, plineattrs, mix);
+}
+
+BOOL DrvBitBlt(
+SURFOBJ *psoTrg,
+SURFOBJ *psoSrc,
+SURFOBJ *psoMask,
+CLIPOBJ *pco,
+XLATEOBJ *pxlo,
+RECTL *prclTrg,
+POINTL *pptlSrc,
+POINTL *pptlMask,
+BRUSHOBJ *pbo,
+POINTL *pptlBrush,
+ROP4 rop4)
+{
+    HSURF psoBuffer;
+    psoBuffer = EngLockSurface(((PPDEV) psoTrg->dhpdev)->hsurfBuffer);
+    EngBitBlt(psoBuffer, psoSrc, psoMask, pco, pxlo, prclTrg, pptlSrc, pptlMask, pbo, pptlBrush, rop4);
+    EngUnlockSurface(psoBuffer);
+    return EngBitBlt(psoTrg, psoSrc, psoMask, pco, pxlo, prclTrg, pptlSrc, pptlMask, pbo, pptlBrush, rop4);
+}
+
+BOOL DrvPaint(
+SURFOBJ *pso,
+CLIPOBJ *pco,
+BRUSHOBJ *pbo,
+POINTL *pptlBrushOrg,
+MIX mix)
+{
+    HSURF psoBuffer;
+    psoBuffer = EngLockSurface(((PPDEV) pso->dhpdev)->hsurfBuffer);
+    EngPaint(psoBuffer, pco, pbo, pptlBrushOrg, mix);
+    EngUnlockSurface(psoBuffer);
+    return EngPaint(pso, pco, pbo, pptlBrushOrg, mix);
+}
+
+BOOL DrvFillPath(
+SURFOBJ *pso,
+PATHOBJ *ppo,
+CLIPOBJ *pco,
+BRUSHOBJ *pbo,
+POINTL *pptlBrushOrg,
+MIX mix,
+FLONG flOptions)
+{
+    HSURF psoBuffer;
+    psoBuffer = EngLockSurface(((PPDEV) pso->dhpdev)->hsurfBuffer);
+    EngFillPath(psoBuffer, ppo, pco, pbo, pptlBrushOrg, mix, flOptions);
+    EngUnlockSurface(psoBuffer);
+    return EngFillPath(pso, ppo, pco, pbo, pptlBrushOrg, mix, flOptions);
+}
+
+BOOL DrvStrokeAndFillPath(
+SURFOBJ *pso,
+PATHOBJ *ppo,
+CLIPOBJ *pco,
+XFORMOBJ *pxo,
+BRUSHOBJ *pboStroke,
+LINEATTRS *plineattrs,
+BRUSHOBJ *pboFill,
+POINTL *pptlBrushOrg,
+MIX mixFill,
+FLONG flOptions)
+{
+    HSURF psoBuffer;
+    psoBuffer = EngLockSurface(((PPDEV) pso->dhpdev)->hsurfBuffer);
+    EngStrokeAndFillPath(psoBuffer, ppo, pco, pxo, pboStroke, plineattrs, pboFill, pptlBrushOrg, mixFill, flOptions);
+    EngUnlockSurface(psoBuffer);
+    return EngStrokeAndFillPath(pso, ppo, pco, pxo, pboStroke, plineattrs, pboFill, pptlBrushOrg, mixFill, flOptions);
 }

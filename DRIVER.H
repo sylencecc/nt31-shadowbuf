@@ -17,7 +17,8 @@ typedef struct  _PDEV
 {
     HANDLE  hDriver;                    // Handle to \Device\Screen
     HDEV    hdevEng;                    // Engine's handle to PDEV
-    HSURF   hsurfEng;                   // Engine's handle to surface
+    HSURF   hsurfEng;                   // Engine's handle to surface (shadow buffer)
+    HSURF   hsurfBuffer;                // Actual device framebuffer
     HPALETTE hpalDefault;               // Handle to the default palette for device.
     PBYTE   pjScreen;                   // This is pointer to base screen address
     ULONG   cxScreen;                   // Visible screen width
