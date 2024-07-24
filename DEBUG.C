@@ -14,7 +14,7 @@
 
 #if DBG
 
-ULONG DebugLevel = 0;
+ULONG DebugLevel = 10;
 
 #endif // DBG
 
